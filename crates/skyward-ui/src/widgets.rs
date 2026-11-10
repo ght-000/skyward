@@ -1,3 +1,4 @@
+use crate::app::{Action, Screen};
 use crate::canvas::Canvas;
 use crate::color::{blend_over, mix, over, Rgba};
 use crate::fmt;
@@ -737,6 +738,114 @@ pub fn back_cue(c: &mut Canvas, t: &Theme, from_left: bool, cy: f32, depth: f32,
         let white = Rgba::rgb(255, 255, 255);
         c.line(tip, cy, end, cy - h / 2.0 + sw / 2.0, sw, white);
         c.line(tip, cy, end, cy + h / 2.0 - sw / 2.0, sw, white);
+    }
+}
+
+pub const NAV_BAR_H_DP: f32 = 48.0;
+
+pub fn nav_bar_height(t: &Theme) -> f32 {
+    t.m.dp(NAV_BAR_H_DP)
+}
+
+pub fn nav_bar_rect(t: &Theme) -> Rect {
+    let h = nav_bar_height(t);
+    Rect::new(0.0, t.m.h as f32, t.m.w as f32, h)
+}
+
+pub fn nav_bar_buttons(t: &Theme, swapped: bool) -> [(Action, Rect); 3] {
+    let m = &t.m;
+    let w = m.w as f32;
+    let h = nav_bar_height(t);
+    let y = m.h as f32;
+    let cx = w * 0.5;
+    let spacing = m.dp(78.0);
+
+    let left_action = if swapped { Action::Open(Screen::Terminal) } else { Action::Back };
+    let right_action = if swapped { Action::Back } else { Action::Open(Screen::Terminal) };
+
+    let split_l = cx - spacing * 0.5;
+    let split_r = cx + spacing * 0.5;
+
+    [
+        (left_action, Rect::new(0.0, y, split_l, h)),
+        (Action::Home, Rect::new(split_l, y, split_r - split_l, h)),
+        (right_action, Rect::new(split_r, y, w - split_r, h)),
+    ]
+}
+
+pub fn nav_bar(c: &mut Canvas, t: &Theme, swapped: bool, pressing: Option<Action>) {
+    let m = &t.m;
+    let w = m.w as f32;
+    let h = nav_bar_height(t);
+    let y = m.h as f32;
+    let cy = y + h * 0.5;
+    let cx = w * 0.5;
+    let spacing = m.dp(78.0);
+
+    let bg = if t.dark {
+        Rgba { r: 18, g: 18, b: 18, a: 230 }
+    } else {
+        Rgba { r: 245, g: 245, b: 245, a: 230 }
+    };
+    c.fill_rect(0.0, y, w, h, bg);
+
+    let divider = if t.dark {
+        Rgba { r: 255, g: 255, b: 255, a: 20 }
+    } else {
+        Rgba { r: 0, g: 0, b: 0, a: 18 }
+    };
+    c.line(0.0, y, w, y, m.dp(0.75), divider);
+
+    let left_action = if swapped { Action::Open(Screen::Terminal) } else { Action::Back };
+    let right_action = if swapped { Action::Back } else { Action::Open(Screen::Terminal) };
+
+    let items = [
+        (left_action, cx - spacing),
+        (Action::Home, cx),
+        (right_action, cx + spacing),
+    ];
+
+    let icon_color = t.pal.text;
+    let press_bg = if t.dark {
+        Rgba { r: 255, g: 255, b: 255, a: 30 }
+    } else {
+        Rgba { r: 0, g: 0, b: 0, a: 20 }
+    };
+
+    for (action, btn_cx) in items {
+        let is_pressed = pressing == Some(action);
+
+        if is_pressed {
+            let pill_w = m.dp(56.0);
+            let pill_h = m.dp(32.0);
+            c.fill_round_rect(btn_cx - pill_w * 0.5, cy - pill_h * 0.5, pill_w, pill_h, pill_h * 0.5, press_bg);
+        }
+
+        match action {
+            Action::Back => {
+                let size = m.dp(12.0);
+                let stroke = m.dp(2.2);
+                c.line(btn_cx - size * 0.5, cy, btn_cx + size * 0.35, cy - size * 0.65, stroke, icon_color);
+                c.line(btn_cx - size * 0.5, cy, btn_cx + size * 0.35, cy + size * 0.65, stroke, icon_color);
+            }
+            Action::Home => {
+                let r = m.dp(7.0);
+                let stroke = m.dp(2.2);
+                c.stroke_circle(btn_cx, cy, r, stroke, icon_color);
+            }
+            Action::Open(Screen::Terminal) => {
+                let stroke = m.dp(2.0);
+                let arr_w = m.dp(6.0);
+                let arr_h = m.dp(5.5);
+                let arr_cx = btn_cx - m.dp(4.0);
+                c.line(arr_cx - arr_w * 0.5, cy - arr_h, arr_cx + arr_w * 0.5, cy, stroke, icon_color);
+                c.line(arr_cx + arr_w * 0.5, cy, arr_cx - arr_w * 0.5, cy + arr_h, stroke, icon_color);
+                let line_x = btn_cx + m.dp(3.0);
+                let line_w = m.dp(6.0);
+                c.line(line_x, cy + arr_h, line_x + line_w, cy + arr_h, stroke, icon_color);
+            }
+            _ => {}
+        }
     }
 }
 

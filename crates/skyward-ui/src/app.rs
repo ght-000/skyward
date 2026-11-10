@@ -558,6 +558,8 @@ pub enum Switch {
     /// Write Skyward back into the recovery partitions an install writes
     /// over.
     KeepRecovery,
+    NavBar,
+    NavBarSwap,
     Wlan,
     /// Show the password typed rather than a dot for each character.
     ShowPassword,
@@ -1171,6 +1173,7 @@ pub enum Action {
     Skip,
     /// Try opening the data partition again, after it did not open.
     OpenData,
+    Home,
     Back,
     Theme { dark: bool },
     Toggle(Switch),
@@ -1595,6 +1598,8 @@ pub struct State {
     pub double_tap: bool,
     /// Whether this panel can tell taps while its backlight is off.
     pub double_tap_supported: bool,
+    pub nav_bar: bool,
+    pub nav_bar_swap: bool,
     /// How strongly the motor taps, from 0 at the slider's left end to 1
     /// at its right.
     pub vibration: f32,
@@ -1771,6 +1776,8 @@ impl Default for State {
             vibrate: true,
             double_tap: true,
             double_tap_supported: true,
+            nav_bar: true,
+            nav_bar_swap: false,
             vibration: SLIDER_START,
             file_transfer: true,
             reboot: 0,
@@ -1943,6 +1950,7 @@ pub enum Key {
     VolumeUp,
     VolumeDown,
     Back,
+    Wake,
 }
 
 /// Where a screenshot went.
@@ -2605,14 +2613,17 @@ pub struct Tap {
 impl Tap {
     /// How long after a tap another may come and still be the second of a
     /// double tap: Android's own window.
-    pub const WINDOW_MS: u64 = 300;
+    pub const WINDOW_MS: u64 = 450;
     /// How far apart two taps of one double tap may land. The phone's own
     /// system uses a share of the screen's width; a fixed distance serves
     /// the same at this panel's size and keeps the check off the page width.
-    pub const SLOP: f32 = 120.0;
+    pub const SLOP: f32 = 250.0;
     /// Whether `other` lands near enough to be the second tap of one double
     /// tap started by this.
     pub fn doubles(&self, other: &Tap) -> bool {
+        if (self.x == 0.0 && self.y == 0.0) || (other.x == 0.0 && other.y == 0.0) {
+            return true;
+        }
         (other.x - self.x).abs() <= Self::SLOP && (other.y - self.y).abs() <= Self::SLOP
     }
 }
@@ -2836,11 +2847,20 @@ impl App {
         self.corners = radius;
     }
 
-    pub fn theme(&self) -> Theme {
-        if self.state.dark {
-            Theme::dark(self.w, self.h, self.px_per_dp)
+    pub fn nav_h(&self) -> u32 {
+        if self.state.nav_bar {
+            (widgets::NAV_BAR_H_DP * self.px_per_dp).round() as u32
         } else {
-            Theme::light(self.w, self.h, self.px_per_dp)
+            0
+        }
+    }
+
+    pub fn theme(&self) -> Theme {
+        let h = self.h - self.nav_h();
+        if self.state.dark {
+            Theme::dark(self.w, h, self.px_per_dp)
+        } else {
+            Theme::light(self.w, h, self.px_per_dp)
         }
     }
 
@@ -4244,7 +4264,7 @@ impl App {
     }
 
     fn max_scroll(&self) -> f32 {
-        (self.height - self.h as f32).max(0.0)
+        (self.height - (self.h - self.nav_h()) as f32).max(0.0)
     }
 
     fn clamp_scroll(&mut self) {
@@ -4415,6 +4435,9 @@ impl App {
         if let Some((text, _)) = &self.toast {
             widgets::toast(out, &t, f, text);
         }
+        if self.state.nav_bar {
+            widgets::nav_bar(out, &t, self.state.nav_bar_swap, self.pressing());
+        }
         match self.drag {
             Drag::Edge { start, from_left, armed, x, cy } => {
                 let travel = if from_left { x - start } else { start - x };
@@ -4558,7 +4581,7 @@ impl App {
             shine(out, Group::Strip);
         }
         if let Some(d) = &frame.dock {
-            out.put(&d.canvas, (out.h - d.canvas.h) as i32);
+            out.put(&d.canvas, (t.m.h - d.canvas.h) as i32);
             shine(out, Group::Dock);
         }
         if frame.back {
@@ -4684,6 +4707,9 @@ impl App {
         widgets::status_bar(out, &t, f, &self.bar(clock, info), t.pal.status);
         if let Some((text, _)) = &self.toast {
             widgets::toast(out, &t, f, text);
+        }
+        if self.state.nav_bar {
+            widgets::nav_bar(out, &t, self.state.nav_bar_swap, self.pressing());
         }
     }
 
@@ -5187,6 +5213,14 @@ impl App {
                 self.settle_page();
                 self.refresh();
             }
+            Action::Home => {
+                if self.screen() != Screen::Home {
+                    self.leave(true);
+                    self.stack = vec![(Screen::Home, 0.0, Focus::Unset)];
+                    self.settle_page();
+                    self.refresh();
+                }
+            }
             Action::Back | Action::CloseSearch => return self.back(now),
             Action::Theme { dark } => {
                 if self.state.dark != dark {
@@ -5212,6 +5246,8 @@ impl App {
                     Switch::Verify => &mut self.state.verify,
                     Switch::Signature => &mut self.state.check_signature,
                     Switch::KeepRecovery => &mut self.state.keep_recovery,
+                    Switch::NavBar => &mut self.state.nav_bar,
+                    Switch::NavBarSwap => &mut self.state.nav_bar_swap,
                     Switch::ShowPassword => &mut self.state.show_password,
                     Switch::Wlan => unreachable!("the WLAN switch is turned above"),
                 };
@@ -6095,10 +6131,18 @@ impl App {
                 let back = widgets::back_rect(&t);
                 let strip = self.frame.as_ref().and_then(|fr| fr.pinned.as_ref()).map(|p| (p, pinned_top(&t, p, scroll)));
                 let on_strip = strip.filter(|&(p, top)| y >= top && y < top + p.canvas.h as f32);
-                let dock = self.frame.as_ref().and_then(|fr| fr.dock.as_ref()).map(|d| (d, self.h as f32 - d.canvas.h as f32));
+                let dock = self.frame.as_ref().and_then(|fr| fr.dock.as_ref()).map(|d| (d, t.m.h as f32 - d.canvas.h as f32));
                 let on_dock = dock.filter(|&(_, top)| y >= top);
                 let button = self.frame.as_ref().and_then(|fr| fr.button).map(|(_, a)| (a, widgets::button_rect(&t)));
-                let hit = if self.frame.as_ref().is_some_and(|fr| fr.back) && back.contains(x, y) {
+                let nav_hit = if self.state.nav_bar && y >= t.m.h as f32 {
+                    let buttons = widgets::nav_bar_buttons(&t, self.state.nav_bar_swap);
+                    buttons.into_iter().find(|(_, r)| r.contains(x, y))
+                } else {
+                    None
+                };
+                let hit = if let Some((action, rect)) = nav_hit {
+                    Some((action, rect))
+                } else if self.frame.as_ref().is_some_and(|fr| fr.back) && back.contains(x, y) {
                     Some((Action::Back, back))
                 } else if let Some(button) = button.filter(|(_, r)| r.contains(x, y)) {
                     Some(button)
@@ -6153,6 +6197,14 @@ impl App {
                         Some(from_left) if dx.abs() > slop && dx.abs() > dy.abs() => {
                             self.dirty = true;
                             Drag::Edge { start: x0, from_left, armed: false, x, cy: y0 - m.dp(CUE_LIFT_DP) }
+                        }
+                        _ if self.state.nav_bar && y0 >= t.m.h as f32 => {
+                            let buttons = widgets::nav_bar_buttons(&t, self.state.nav_bar_swap);
+                            let new_action = buttons.into_iter().find(|(_, r)| r.contains(x, y)).map(|(a, _)| a);
+                            if new_action != action {
+                                self.dirty = true;
+                            }
+                            Drag::Press { x: x0, y: y0, action: new_action, edge: at_edge, at }
                         }
                         _ if dy.abs() > slop => {
                             let history = self.frame.as_ref().and_then(|fr| fr.scrollback).filter(|(r, _)| r.contains(x0, y0 + scroll));
@@ -6304,7 +6356,7 @@ impl App {
     fn pressing(&self) -> Option<Action> {
         let button = self.frame.as_ref().and_then(|fr| fr.button).map(|(_, a)| a);
         match self.drag {
-            Drag::Press { action: Some(a @ (Action::Back | Action::CloseSearch | Action::Open(Screen::Search))), .. } => Some(a),
+            Drag::Press { action: Some(a @ (Action::Back | Action::Home | Action::Open(Screen::Terminal) | Action::CloseSearch | Action::Open(Screen::Search))), .. } => Some(a),
             Drag::Press { action: Some(a), .. } if Some(a) == button => Some(a),
             _ => None,
         }
@@ -6348,11 +6400,25 @@ impl App {
         }
         let mut fx = self.let_chord_go(now);
         if !self.display_on {
-            // The power key lights the dark panel, and does only that, as on
-            // the phone's own system; the other keys leave it dark.
+            // The power key lights the dark panel immediately.
             if key == Key::Power {
                 self.wake(now);
+            } else if key == Key::Wake && self.state.double_tap {
+                let doubled = self
+                    .tapped
+                    .filter(|(_, at)| now.saturating_sub(*at) <= Tap::WINDOW_MS);
+                if doubled.is_some() {
+                    self.tapped = None;
+                    self.wake(now);
+                } else {
+                    self.tapped = Some((Tap { x: 0.0, y: 0.0 }, now));
+                }
             }
+            self.button = Some((key, Press::Spent));
+            return fx;
+        }
+        if key == Key::Wake {
+            self.stir(now);
             self.button = Some((key, Press::Spent));
             return fx;
         }
@@ -6438,6 +6504,10 @@ impl App {
                         return vec![Effect::Ticks];
                     }
                 }
+                Vec::new()
+            }
+            Key::Wake => {
+                self.button = Some((key, Press::Spent));
                 Vec::new()
             }
         }
@@ -6860,7 +6930,7 @@ impl App {
             Group::Fixed => 0.0,
             Group::Strip => pinned_top(&self.theme(), fr.pinned.as_ref().expect("the strip holds its controls"), offset),
             Group::Page => return fr.shown(s.rect, offset),
-            Group::Dock => self.h as f32 - fr.dock.as_ref().expect("the dock holds its controls").canvas.h as f32,
+            Group::Dock => self.theme().m.h as f32 - fr.dock.as_ref().expect("the dock holds its controls").canvas.h as f32,
         };
         Some(Rect { y: s.rect.y + dy, ..s.rect })
     }
@@ -6875,7 +6945,7 @@ impl App {
             Some(p) => pinned_top(&t, p, scroll) + p.canvas.h as f32,
             None => widgets::bar_bottom(&t),
         };
-        (top, self.h as f32 - fr.dock.as_ref().map_or(0.0, |d| d.canvas.h as f32))
+        (top, t.m.h as f32 - fr.dock.as_ref().map_or(0.0, |d| d.canvas.h as f32))
     }
 
     /// Whether `s` shows, in part at least, with the page at `scroll`.

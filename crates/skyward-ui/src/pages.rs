@@ -363,9 +363,18 @@ pub fn settings(cx: &Ctx) -> Frame {
     if let Some(r) = slider.below {
         out.push(Hit { rect: r, action: Action::Open(Screen::ScreenOff) });
     }
-    // No wake section: this panel's controller takes no command that turns
-    // its own double tap on, so the switch would be one that does nothing.
-    y = widgets::section(&mut c, t, f, slider.bottom, l.pick(["振动", "震動", "Vibration"]));
+    // Two taps on the dark panel light it, where the panel can tell taps
+    // while its backlight is off.
+    let mut after_brightness = slider.bottom;
+    if s.double_tap_supported {
+        after_brightness = widgets::section(&mut c, t, f, after_brightness, l.pick(["唤醒", "喚醒", "Wake"]));
+        let wake = widgets::list(&mut c, t, f, after_brightness, &[
+            Row::new(l.pick(["双击亮屏", "點兩下喚醒螢幕", "Double-tap to wake"])).trail(Trail::Switch(s.double_tap)),
+        ]);
+        out.extend(hits(&wake.rows, &[Action::Toggle(Switch::DoubleTap)]));
+        after_brightness = wake.bottom;
+    }
+    y = widgets::section(&mut c, t, f, after_brightness, l.pick(["振动", "震動", "Vibration"]));
     let below = Row::new(l.pick(["触摸振动", "觸控震動", "Touch vibration"])).trail(Trail::Switch(s.vibrate));
     let vibration = widgets::slider_card(&mut c, t, f, y, Caption::Vibrate, l.pick(["振动强度", "震動強度", "Vibration intensity"]), s.vibration, Some(below));
     out.push(Hit { rect: vibration.track, action: Action::Slider(Slider::Vibration) });
@@ -387,7 +396,16 @@ pub fn settings(cx: &Ctx) -> Frame {
         "When on, a computer can manage the files in internal storage, once it is decrypted.",
     ]);
     y = widgets::footnote(&mut c, t, f, usb.bottom, note);
-    y = widgets::section(&mut c, t, f, y, l.pick(["调试", "偵錯", "Debugging"]));
+    y = widgets::section(&mut c, t, f, y, l.pick(["导航栏", "導航列", "Navigation bar"]));
+    let mut nav_rows = vec![Row::new(l.pick(["底部导航栏", "底部導航列", "Bottom navigation bar"])).trail(Trail::Switch(s.nav_bar))];
+    let mut nav_actions = vec![Action::Toggle(Switch::NavBar)];
+    if s.nav_bar {
+        nav_rows.push(Row::new(l.pick(["调换按键顺序", "調換按鍵順序", "Swap button order"])).trail(Trail::Switch(s.nav_bar_swap)));
+        nav_actions.push(Action::Toggle(Switch::NavBarSwap));
+    }
+    let nav_list = widgets::list(&mut c, t, f, y, &nav_rows);
+    out.extend(hits(&nav_list.rows, &nav_actions));
+    y = widgets::section(&mut c, t, f, nav_list.bottom, l.pick(["调试", "偵錯", "Debugging"]));
     let debug = widgets::list(&mut c, t, f, y, &[Row::new(l.pick(TERMINAL)).icon(SLATE, Icon::Terminal)]);
     out.extend(hits(&debug.rows, &[Action::Open(Screen::Terminal)]));
     y = widgets::section(&mut c, t, f, debug.bottom, l.pick(["关于", "關於", "About"]));
@@ -509,7 +527,7 @@ pub fn mount(cx: &Ctx) -> Frame {
 }
 
 /// Who made the recovery, as the About page names them under its version.
-const AUTHOR: &str = "© 2026 Kirk Lin & 小和尚";
+const AUTHOR: &str = "© 2026 Kirk Lin";
 
 /// About this device, modelled on the stock「我的设备」: the wordmark, the
 /// version and its author over a moving colour field, and the summary,

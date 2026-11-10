@@ -45,6 +45,9 @@ pub struct Settings {
     /// The time zone, by its name in the tz database.
     pub time_zone: String,
     pub vibrate: bool,
+    pub double_tap: bool,
+    pub nav_bar: bool,
+    pub nav_bar_swap: bool,
     /// The vibration slider's place, from 0 at its left end to 1.
     pub vibration: f32,
     /// A computer connected over USB is offered internal storage.
@@ -124,6 +127,9 @@ impl Settings {
             screen_off: SCREEN_OFF[state.screen_off].map_or(0, |ms| ms / 1000),
             time_zone: TIME_ZONES[state.time_zone].2.to_string(),
             vibrate: state.vibrate,
+            double_tap: state.double_tap,
+            nav_bar: state.nav_bar,
+            nav_bar_swap: state.nav_bar_swap,
             vibration: state.vibration,
             file_transfer: state.file_transfer,
             install: Install { check_signature: state.check_signature, keep_recovery: state.keep_recovery },
@@ -180,6 +186,9 @@ impl Settings {
             state.time_zone = at;
         }
         state.vibrate = self.vibrate;
+        state.double_tap = self.double_tap;
+        state.nav_bar = self.nav_bar;
+        state.nav_bar_swap = self.nav_bar_swap;
         if (0.0..=1.0).contains(&self.vibration) {
             state.vibration = self.vibration;
         }

@@ -55,7 +55,14 @@ fn set_nonblocking(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-const KEYS: [KeyCode; 4] = [KeyCode::KEY_POWER, KeyCode::KEY_VOLUMEUP, KeyCode::KEY_VOLUMEDOWN, KeyCode::KEY_BACK];
+const KEYS: [KeyCode; 6] = [
+    KeyCode::KEY_POWER,
+    KeyCode::KEY_VOLUMEUP,
+    KeyCode::KEY_VOLUMEDOWN,
+    KeyCode::KEY_BACK,
+    KeyCode::KEY_WAKEUP,
+    KeyCode::KEY_GOTO,
+];
 
 fn key_of(code: KeyCode) -> Option<Key> {
     match code {
@@ -63,6 +70,7 @@ fn key_of(code: KeyCode) -> Option<Key> {
         KeyCode::KEY_VOLUMEUP => Some(Key::VolumeUp),
         KeyCode::KEY_VOLUMEDOWN => Some(Key::VolumeDown),
         KeyCode::KEY_BACK => Some(Key::Back),
+        KeyCode::KEY_WAKEUP | KeyCode::KEY_GOTO => Some(Key::Wake),
         _ => None,
     }
 }
@@ -158,6 +166,11 @@ impl Panel {
         };
         for e in events {
             match e.destructure() {
+                EventSummary::Key(_, code, value @ (0 | 1)) => {
+                    if let Some(k) = key_of(code) {
+                        out.push(Event::Key(k, value == 1));
+                    }
+                }
                 // Skip to the next report and read the state back there.
                 EventSummary::Synchronization(_, SynchronizationCode::SYN_DROPPED, _) => self.dropped = true,
                 EventSummary::Synchronization(_, SynchronizationCode::SYN_REPORT, _) => {
