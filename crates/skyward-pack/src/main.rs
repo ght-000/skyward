@@ -135,6 +135,7 @@ fn main() -> Result<()> {
                 rd.add(paths::TASK_PROFILES, 0o644, TASK_PROFILES.to_vec())?;
             }
             rd.add(paths::MTP_RC, 0o644, MTP_RC.to_vec())?;
+            rd.add("system/etc/mkshrc", 0o644, MKSHRC.to_vec())?;
             // On an unlocked device adbd keeps root when ro.secure is 0 and
             // lets any computer in without authorization when ro.adb.secure is
             // 0; init lets a later line of a property file override an earlier
@@ -229,6 +230,9 @@ const TASK_PROFILES: &[u8] = include_bytes!("task_profiles.json");
 /// The init rules that give the USB port file transfer beside adb, which a
 /// stock recovery does not offer.
 const MTP_RC: &[u8] = include_bytes!("mtp.rc");
+
+/// The interactive shell configuration for adb shell and local shells.
+const MKSHRC: &[u8] = b"HOSTNAME=$(getprop ro.product.device)\nexport PS1='${HOSTNAME:-android}:${PWD:-?} # '\n";
 
 /// A property file without the lines that set any of `names`.
 fn without(props: &[u8], names: &[&str]) -> Vec<u8> {
