@@ -158,8 +158,17 @@ fn describe_hardware(wanted: &[String]) -> Result<String> {
 /// against and give the directory they are in. A phone whose partitions
 /// need no bundle has none to open.
 pub fn libraries() -> Result<Option<PathBuf>> {
-    let Some(version) = skyward_sys::prop(VENDOR_INTERFACE) else { return Ok(None) };
-    Ok(bundle(&format!("com.android.vndk.v{version}"))?.map(|at| at.join(BUNDLE_LIBS)))
+    if let Some(at) = bundle("com.android.vndk.current")? {
+        return Ok(Some(at.join(BUNDLE_LIBS)));
+    }
+    let version = skyward_sys::prop(VENDOR_INTERFACE)
+        .or_else(|| skyward_sys::prop("ro.vendor.vndk.version"));
+    if let Some(version) = version {
+        if let Some(at) = bundle(&format!("com.android.vndk.v{version}"))? {
+            return Ok(Some(at.join(BUNDLE_LIBS)));
+        }
+    }
+    Ok(None)
 }
 
 /// Open the bundle of this name where it lies, and give where it is. A

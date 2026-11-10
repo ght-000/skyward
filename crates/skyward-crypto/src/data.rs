@@ -217,7 +217,10 @@ pub fn open_without_credential(service: &KeyMint) -> Result<Opening> {
         // weaver does on a phone whose secure element will not answer. The
         // owner's files open first; a system user nobody signs in to must not
         // hold everyone else up.
-        let protector = match protectors(user).map(|mut p| p.remove(0)) {
+        let protector = match protectors(user).map(|mut p| {
+            p.sort_by_key(|x| matches!(x.bound, Bound::Weaver(_)));
+            p.remove(0)
+        }) {
             Ok(protector) => protector,
             Err(e) => {
                 eprintln!("user {user}'s blobs stayed unread: {e:#}");
@@ -226,12 +229,17 @@ pub fn open_without_credential(service: &KeyMint) -> Result<Opening> {
             }
         };
         match protector.lock {
-            None => {
-                let note = open_user_files(service, user, None, None)?;
-                if user == OWNER {
-                    owner = note;
+            None => match open_user_files(service, user, None, None) {
+                Ok(note) => {
+                    if user == OWNER {
+                        owner = note;
+                    }
                 }
-            }
+                Err(e) => {
+                    eprintln!("user {user}'s own files could not be opened without credential: {e:#}");
+                    closed.push(Closed { user, lock: -1, made_up: made_up(user, &protector.id), why: Some(format!("{e:#}")) });
+                }
+            },
             Some(lock) => closed.push(Closed { user, lock: lock.kind, made_up: made_up(user, &protector.id), why: None }),
         }
     }
@@ -314,10 +322,6 @@ fn users() -> Result<Vec<u32>> {
         let Some(user) = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse::<u32>().ok()) else { continue };
         users.push(user);
     }
-    // User 999 is the phone's own system account, and its secret is bound to
-    // the secure element, which does not answer in a recovery: waiting on it
-    // costs half a minute and opens nothing. The owner is the one signed in.
-    users.retain(|u| *u != 999);
     users.sort_unstable();
     Ok(users)
 }
